@@ -1,0 +1,16 @@
+{
+  "name": "fullstack-submission-part8",
+  "version": "1.0.0",
+  "description": "",
+  "main": "library-backend.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Xiahui Liu",
+  "license": "ISC",
+  "dependencies": {
+    "@apollo/server": "^4.7.1",
+    "graphql": "^16.6.0",
+    "uuid": "^9.0.0"
+  }
+}
