@@ -4,6 +4,7 @@
   "description": "",
   "main": "library-backend.js",
   "scripts": {
+    "dev": "nodemon library-backend.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Xiahui Liu",
@@ -11,6 +12,7 @@
   "dependencies": {
     "@apollo/server": "^4.7.1",
     "graphql": "^16.6.0",
+    "nodemon": "^2.0.22",
     "uuid": "^9.0.0"
   }
 }

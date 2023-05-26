@@ -28,7 +28,6 @@ let authors = [
   },
 ]
 
-
 let books = [
   {
     title: 'Clean Code',
@@ -81,28 +80,17 @@ let books = [
   },
 ]
 
-/*
-  you can remove the placeholder query once your first own has been implemented 
-*/
-
 const typeDefs = `
   type Author {
+    id: ID!
     name: String!
     born: Int
-    id: ID!
-    books:[Book!]!
+    books: [Book]
     bookCount: Int
   }
 
   type Book {
-    title: String!
-    published: Int!
-    author: Author!
     id: ID!
-    genres: [String!]!
-  }
-
-  input BookInput {
     title: String!
     published: Int!
     author: String!
@@ -111,15 +99,18 @@ const typeDefs = `
 
   type Query {
     allAuthors: [Author!]!
-    allBooks: [Book!]!
-    findBooks(author: String, genre: String ): [Book!]!
-    booksCount: Int!
-    authorsCount: Int!
-    findAuthor(name: String!): Author
+    allBooks(author: String, genre: String): [Book!]!
+    bookCount: Int!
+    authorCount: Int!
   }
 
   type Mutation {
-    addBook(book: BookInput!): Book!
+    addBook(
+      title: String!
+      published: Int!
+      author: String!
+      genres: [String!]!
+    ): Book
     editAuthor(name: String!, setBornTo: Int!): Author
   }
 `
@@ -127,60 +118,65 @@ const typeDefs = `
 const resolvers = {
   Query: {
     allAuthors: () => authors,
-    allBooks: () => books,
-    findBooks: (root, args) => {
-      if(args.author) {
-        return books.filter(book => book.author === args.author);
+    allBooks: (parent, args) => {
+      const { author, genre } = args;
+      let filteredBooks = books;
+
+      if (author) {
+        filteredBooks = filteredBooks.filter((book) => book.author === author);
       }
-      if(args.genre) {
-        return books.filter(book => book.genres.includes(args.genre))
+
+      if (genre) {
+        filteredBooks = filteredBooks.filter((book) => book.genres.includes(genre));
       }
+
+      return filteredBooks;
     },
-    booksCount: () => books.length,
-    authorsCount: () => authors.length,
-    findAuthor: (root, args) => 
-      authors.find((p) => p.name === args.name)
-    
-},
-  Book: {
-    author: (parent) => {
-      return authors.find(author => author.name === parent.author);
-    },
+    bookCount: () => books.length,
+    authorCount: () => authors.length
   },
+
   Author: {
-    books: (parent) => {
-      return books.filter(book => book.author === parent.name);
-    },
+    books: (parent) => books.filter((book) => book.author === parent.name),
     bookCount: (parent) => {
-      const authorBooks = books.filter(book => book.author === parent.name);
+      const authorBooks = books.filter((book) => book.author === parent.name);
       return authorBooks.length;
     }
   },
+
   Mutation: {
     addBook: (root, args) => {
-      const newBook = {
-        id: uuid(),
-        title: args.book.title,
-        author: args.book.author,
-        published: args.book.published,
-        genres: args.book.genres
-      };
-  
-      books.push(newBook);
-  
-      return newBook;
-    },
-    editAuthor: (root, args) => {
-      const author = authors.find(p => p.name === args.name)
+      let author = authors.find((author) => author.name === args.author);
       if (!author) {
-        return null
+        author = {
+          name: args.author,
+          id: uuid(),
+        };
+        authors.push(author);
       }
-      const updatedAuthor = { ...author, born: args.setBornTo}
-      
-      authors = authors.map(p => p.name === args.name ? updatedAuthor : p)
-      return updatedAuthor
+
+      const book = {
+        ...args,
+        id: uuid(),
+      };
+
+      books.push(book);
+
+      return book;
+    },
+
+    editAuthor: (root, args) => {
+      const author = authors.find((author) => author.name === args.name);
+      if (!author) {
+        return null;
+      }
+
+      const updatedAuthor = { ...author, born: args.setBornTo };
+
+      authors = authors.map((a) => (a.name === args.name ? updatedAuthor : a));
+      return updatedAuthor;
     }
-}
+  }
 }
 
 const server = new ApolloServer({
