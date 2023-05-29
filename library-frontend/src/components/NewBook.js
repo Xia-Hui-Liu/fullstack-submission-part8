@@ -1,32 +1,48 @@
-import { useState } from 'react'
+import React, { useState } from 'react';
+import { useMutation, useQuery } from "@apollo/client";
+import { CREATE_BOOK, ALL_BOOKS } from "../queries";
 
 const NewBook = (props) => {
-  const [title, setTitle] = useState('')
-  const [author, setAuthor] = useState('')
-  const [published, setPublished] = useState('')
-  const [genre, setGenre] = useState('')
-  const [genres, setGenres] = useState([])
+  const [title, setTitle] = useState('');
+  const [author, setAuthor] = useState('');
+  const [published, setPublished] = useState('');
+  const [genre, setGenre] = useState('');
+  const [genres, setGenres] = useState([]);
+  const [error, setError] = useState('');
+
+  const [createBook] = useMutation(CREATE_BOOK, {
+    refetchQueries: [{ query: ALL_BOOKS }]
+  });
+
+  const result = useQuery(ALL_BOOKS)
 
   if (!props.show) {
-    return null
+    return null;
   }
 
   const submit = async (event) => {
-    event.preventDefault()
+    event.preventDefault();
 
-    console.log('add book...')
+    // Check if the book title already exists
+    const existingBook = result.data.allBooks.find(book => book.title === title);
+    if (existingBook) {
+      setError('Book with the same title already exists');
+      return;
+    }
 
-    setTitle('')
-    setPublished('')
-    setAuthor('')
-    setGenres([])
-    setGenre('')
-  }
+    createBook({ variables: { title, published: parseInt(published), author, genres }});
+
+    setTitle('');
+    setPublished('');
+    setAuthor('');
+    setGenres([]);
+    setGenre('');
+  };
 
   const addGenre = () => {
-    setGenres(genres.concat(genre))
-    setGenre('')
-  }
+    setGenres(genres.concat(genre));
+    setGenre('');
+  };
 
   return (
     <div>
@@ -62,11 +78,16 @@ const NewBook = (props) => {
             add genre
           </button>
         </div>
-        <div>genres: {genres.join(' ')}</div>
+        <div>
+          genres: {genres.map((genre, index) => (
+            <span key={index}>{genre}</span>
+          ))}
+        </div>
+        {error && <div>{error}</div>}
         <button type="submit">create book</button>
       </form>
     </div>
-  )
-}
+  );
+};
 
-export default NewBook
+export default NewBook;
