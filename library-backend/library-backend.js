@@ -1,32 +1,42 @@
-const { ApolloServer } = require('@apollo/server')
-const { startStandaloneServer } = require('@apollo/server/standalone')
-const { v4: uuid } = require('uuid')
+const { ApolloServer } = require('@apollo/server');
+const { startStandaloneServer } = require('@apollo/server/standalone');
+const { v1: uuid } = require('uuid');
+const { GraphQLError } = require('graphql');
+const jwt = require('jsonwebtoken')
+
+const mongoose = require('mongoose')
+mongoose.set('strictQuery', false)
+const AuthorModel = require('./models/authors')
+const BookModel = require('./models/books')
+const UserModel = require('./models/user')
+require('dotenv').config()
+
+const MONGODB_URI = process.env.MONGODB_URI
+console.log('connecting to', MONGODB_URI)
+
+
 
 let authors = [
   {
     name: 'Robert Martin',
-    id: "afa51ab0-344d-11e9-a414-719c6709cf3e",
     born: 1952,
   },
   {
     name: 'Martin Fowler',
-    id: "afa5b6f0-344d-11e9-a414-719c6709cf3e",
     born: 1963
   },
   {
     name: 'Fyodor Dostoevsky',
-    id: "afa5b6f1-344d-11e9-a414-719c6709cf3e",
     born: 1821
   },
   { 
-    name: 'Joshua Kerievsky', // birthyear not known
-    id: "afa5b6f2-344d-11e9-a414-719c6709cf3e",
+    name: 'Joshua Kerievsky', 
   },
   { 
-    name: 'Sandi Metz', // birthyear not known
-    id: "afa5b6f3-344d-11e9-a414-719c6709cf3e",
+    name: 'Sandi Metz', 
   },
 ]
+
 
 let books = [
   {
@@ -80,30 +90,102 @@ let books = [
   },
 ]
 
-const typeDefs = `
-  type Author {
-    id: ID!
-    name: String!
-    born: Int
-    books: [Book]
-    bookCount: Int
+const booksWithoutId = books.map((book) => {
+  const {id, ...rest} = book;
+  return rest;
+})
+
+mongoose.connect(MONGODB_URI)
+  .then(() => {
+    console.log('connected to MongoDB')
+    saveDataToMongoDB()
+  })
+  .catch((error) => {
+    console.log('error connection to MongoDB', error.message)
+  })
+
+  // Function to save authors and books to MongoDB
+  const saveDataToMongoDB = async () => {
+    try {
+      await saveAuthors()
+      await saveBooks()
+      console.log('Data saved to MongoDB')
+    } catch (error) {
+      console.log('Error saving data to MongoDB', error.message)
+    } 
   }
 
-  type Book {
+  // Function to save authors to MongoDB
+  const saveAuthors = async () => {
+    try {
+      for (const authorData of authors) {
+        const existAuthor = await AuthorModel.findOne({ name: authorData.name })
+        
+        if (!existAuthor) {
+          const author = new AuthorModel(authorData)
+          console.log(author)
+          await author.save()
+          console.log('Author saved:', author.name);
+      } else {
+        console.log('Author already exists:', existAuthor.name);
+      }
+      }
+    } catch (error) {
+      console.log('Error saving authors:', error.message);
+    }
+  }
+
+  // Function to save books to MongoDB
+const saveBooks = async () => {
+  try {
+    for (const bookData of booksWithoutId) {
+      const author = await AuthorModel.findOne({ name: bookData.author });
+
+      if (!author) {
+        console.log(`Author not found for book: ${bookData.title}`);
+        continue;
+      }
+
+      const book = new BookModel({ ...bookData, author: author._id });
+      await book.save();
+      console.log('Book saved:', book.title);
+    }
+    console.log('All books saved successfully');
+  } catch (error) {
+    console.log('Error saving books:', error.message);
+  }
+};
+
+const typeDefs = `
+  type Author {
+    name: String!
     id: ID!
+    born: Int
+    bookCount: Int
+  }
+  type Book {
     title: String!
     published: Int!
     author: String!
+    id: ID!
     genres: [String!]!
+  }
+  type User {
+    username: String!
+    favoriteGenre: String!
+    id: ID!
+  }
+  type Token {
+    value: String!
   }
 
   type Query {
-    allAuthors: [Author!]!
-    allBooks(author: String, genre: String): [Book!]!
-    bookCount: Int!
-    authorCount: Int!
+    allBooks(author:String, genre:String): [Book!]
+    allAuthors: [Author!]
+    bookCount: Int
+    authorCount:Int
+    me: User
   }
-
   type Mutation {
     addBook(
       title: String!
@@ -111,72 +193,157 @@ const typeDefs = `
       author: String!
       genres: [String!]!
     ): Book
-    editAuthor(name: String!, setBornTo: Int!): Author
+    editAuthor(
+      name: String!
+      setBornTo: Int
+    ):Author
+
+    createUser(
+      username: String!
+      favoriteGenre: String!
+    ): User
+    login(
+      username: String!
+      password: String!
+    ): Token
   }
 `
 
 const resolvers = {
   Query: {
-    allAuthors: () => authors,
-    allBooks: (parent, args) => {
-      const { author, genre } = args;
-      let filteredBooks = books;
+    allBooks: async(root, args) => {
+      try {
+          let filteredBooks = await BookModel.find({}).populate('author')
 
-      if (author) {
-        filteredBooks = filteredBooks.filter((book) => book.author === author);
+          filteredBooks = filteredBooks.map(book => ({
+            ...book.toObject(),
+            author: book.author.name,
+          }))
+
+        if (args.author) {
+          filteredBooks = filteredBooks.filter(book => book.author === args.author);
+        }
+        if (args.genre) {
+          filteredBooks = filteredBooks.filter(book => book.genres.includes(args.genre));
+        }
+        return filteredBooks;
+      } catch (error) {
+        throw new Error('Error fetching books: ' + error.message)
       }
-
-      if (genre) {
-        filteredBooks = filteredBooks.filter((book) => book.genres.includes(genre));
-      }
-
-      return filteredBooks;
-    },
-    bookCount: () => books.length,
-    authorCount: () => authors.length
-  },
-
-  Author: {
-    books: (parent) => books.filter((book) => book.author === parent.name),
-    bookCount: (parent) => {
-      const authorBooks = books.filter((book) => book.author === parent.name);
-      return authorBooks.length;
     }
-  },
-
-  Mutation: {
-    addBook: (root, args) => {
-      let author = authors.find((author) => author.name === args.author);
-      if (!author) {
-        author = {
-          name: args.author,
-          id: uuid(),
-        };
-        authors.push(author);
-      }
-
-      const book = {
-        ...args,
-        id: uuid(),
-      };
-
-      books.push(book);
-
-      return book;
+    ,
+    allAuthors: async() => {
+      try {
+        const authors = await AuthorModel.find({})
+        
+        return authors.map(author => ({
+          ...author.toObject(),
+          bookCount: books.filter(book => book.author === author.name).length,
+        }));
+      } catch (error) {
+        throw new Error('Error fetching authors: ' + error.message)
+      } 
     },
-
-    editAuthor: (root, args) => {
-      const author = authors.find((author) => author.name === args.name);
-      if (!author) {
-        return null;
+    bookCount: async() => {
+      try {
+        return await BookModel.countDocuments()
+      } catch (error) {
+        throw new Error('Error fetching book count: ' + error.message)
       }
+    },
+    authorCount: async() => {
+      try {
+        return await AuthorModel.countDocuments()
+      } catch (error) {
+        throw new Error('Error fetching athor count: ' + error.message)
+      }
+  },
+  me: (root, args, context) => {
+    return context.currentUser
+  }
+},
+  Mutation: {
+    addBook: async(root, args, context) => {
+      const currentUser = context.currentUser
+        
+        if (!currentUser) {
+          throw new GraphQLError('not authenticated', {
+            extensions: {
+              code: 'BAD_USER_INPUT',
+            }
+          })
+        }
+      try {
+        let author = await AuthorModel.findOne({name: args.author})
+        if (!author) {
+          author =  new AuthorModel({ name: args.author, born: args.born})
+          await author.save()
+        }
+        const newBook = new BookModel({...args, author: author._id})
+        await newBook.save()
+        currentUser.favoriteGenre = currentUser.favoriteGenre.concat(newBook)
+        await currentUser.save()
+      } catch (error) {
+        throw new GraphQLError('Saving user failed: ', {
+          extensions: {
+            code: 'BAD_USER_INPUT',
+            invalidArgs: args.name,
+            error
+          }
+        });
+      }
+      return newBook
+    },
+    createUser: async (root, args) => {
+      const user = new UserModel({ username: args.username })
 
-      const updatedAuthor = { ...author, born: args.setBornTo };
+      return user.save()
+                 .catch(error => {
+                  throw new GraphQLError('Creating the user failed', {
+                    extensions: {
+                      code: 'BAD_USER_INPUT',
+                      invalidArgs: args.name,
+                      error
+                    }
+                  })
+                 })
+    },
+    login: async (root, args) => {
+      const user = await UserModel.findOne({ username: args.username })
 
-      authors = authors.map((a) => (a.name === args.name ? updatedAuthor : a));
-      return updatedAuthor;
+      if ( !user || args.password !== 'secret' ) {
+        throw new GraphQLError('wrong credentials', {
+          extensions: { code: 'BAD_USER_INPUT' }
+        })        
+      }
+  
+      const userForToken = {
+        username: user.username,
+        id: user._id,
+      }
+  
+      return { value: jwt.sign(userForToken, process.env.JWT_SECRET) }
+    },
+    editAuthor: async(root, args) => {
+      try {
+        const author = await AuthorModel.findOne({name: args.name})
+        if (!author) {
+          return null
+        }
+        author.born = args.setBornTo;
+        await author.save()
+        return author
+      } catch (error) {
+        throw new GraphQLError('Error adding book: ', {
+          extensions: {
+            code: 'BAD_USER_INPUT',
+            invalidArgs: args.author,
+            error
+          }
+      })
     }
   }
+}
 }
 
 const server = new ApolloServer({

@@ -1,18 +1,22 @@
 {
-  "name": "fullstack-submission-part8",
+  "name": "fullstack-submission-8",
   "version": "1.0.0",
   "description": "",
   "main": "library-backend.js",
   "scripts": {
-    "dev": "nodemon library-backend.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon library-backend.js"
   },
   "author": "Xiahui Liu",
   "license": "ISC",
   "dependencies": {
-    "@apollo/server": "^4.7.1",
-    "graphql": "^16.6.0",
-    "nodemon": "^2.0.22",
+    "@apollo/client": "^3.8.0",
+    "@apollo/server": "^4.9.1",
+    "dotenv": "^16.3.1",
+    "graphql": "^16.7.1",
+    "jsonwebtoken": "^9.0.1",
+    "mongoose": "^7.4.3",
+    "mongoose-unique-validator": "^4.0.0",
+    "nodemon": "^3.0.1",
     "uuid": "^9.0.0"
   }
 }
