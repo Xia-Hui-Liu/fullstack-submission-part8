@@ -1,6 +1,5 @@
 const { ApolloServer } = require('@apollo/server');
 const { startStandaloneServer } = require('@apollo/server/standalone');
-const { v1: uuid } = require('uuid');
 const { GraphQLError } = require('graphql');
 const jwt = require('jsonwebtoken')
 
@@ -136,25 +135,26 @@ mongoose.connect(MONGODB_URI)
   }
 
   // Function to save books to MongoDB
-const saveBooks = async () => {
-  try {
-    for (const bookData of booksWithoutId) {
-      const author = await AuthorModel.findOne({ name: bookData.author });
-
-      if (!author) {
-        console.log(`Author not found for book: ${bookData.title}`);
-        continue;
+  const saveBooks = async () => {
+    try {
+      for (const bookData of booksWithoutId) {
+        const author = await AuthorModel.findOne({ name: bookData.author });
+  
+        if (!author) {
+          console.log(`Author not found for book: ${bookData.title}`);
+          continue;
+        }
+  
+        const book = new BookModel({ ...bookData, author: author._id });
+        await book.save();
+        console.log('Book saved:', book.title);
       }
-
-      const book = new BookModel({ ...bookData, author: author._id });
-      await book.save();
-      console.log('Book saved:', book.title);
+      console.log('All books saved successfully');
+    } catch (error) {
+      console.log('Error saving books:', error.message);
     }
-    console.log('All books saved successfully');
-  } catch (error) {
-    console.log('Error saving books:', error.message);
-  }
-};
+  };
+  
 
 const typeDefs = `
   type Author {
@@ -166,13 +166,13 @@ const typeDefs = `
   type Book {
     title: String!
     published: Int!
-    author: String!
+    author: Author!
     id: ID!
     genres: [String!]!
   }
   type User {
     username: String!
-    favoriteGenre: String!
+    favoriteGenre: [String]!
     id: ID!
   }
   type Token {
@@ -190,7 +190,7 @@ const typeDefs = `
     addBook(
       title: String!
       published: Int!
-      author: String!
+      author: String
       genres: [String!]!
     ): Book
     editAuthor(
@@ -200,7 +200,6 @@ const typeDefs = `
 
     createUser(
       username: String!
-      favoriteGenre: String!
     ): User
     login(
       username: String!
@@ -215,13 +214,8 @@ const resolvers = {
       try {
           let filteredBooks = await BookModel.find({}).populate('author')
 
-          filteredBooks = filteredBooks.map(book => ({
-            ...book.toObject(),
-            author: book.author.name,
-          }))
-
         if (args.author) {
-          filteredBooks = filteredBooks.filter(book => book.author === args.author);
+          filteredBooks = filteredBooks.filter(book => book.author.name === args.author);
         }
         if (args.genre) {
           filteredBooks = filteredBooks.filter(book => book.genres.includes(args.genre));
@@ -234,15 +228,21 @@ const resolvers = {
     ,
     allAuthors: async() => {
       try {
-        const authors = await AuthorModel.find({})
-        
-        return authors.map(author => ({
-          ...author.toObject(),
-          bookCount: books.filter(book => book.author === author.name).length,
-        }));
+        const authors = await AuthorModel.find({});
+
+        return authors.map(async (author) => {
+          return {
+            ...author.toObject(),
+            bookCount: 
+            (await BookModel
+              .find({})
+              .populate('author'))
+              .filter(book => book.author.name === author.name).length,
+          };
+        });
       } catch (error) {
-        throw new Error('Error fetching authors: ' + error.message)
-      } 
+        throw new Error('Error fetching authors: ' + error.message);
+      }
     },
     bookCount: async() => {
       try {
@@ -263,40 +263,68 @@ const resolvers = {
   }
 },
   Mutation: {
-    addBook: async(root, args, context) => {
-      const currentUser = context.currentUser
-        
-        if (!currentUser) {
-          throw new GraphQLError('not authenticated', {
-            extensions: {
-              code: 'BAD_USER_INPUT',
-            }
-          })
-        }
-      try {
-        let author = await AuthorModel.findOne({name: args.author})
-        if (!author) {
-          author =  new AuthorModel({ name: args.author, born: args.born})
-          await author.save()
-        }
-        const newBook = new BookModel({...args, author: author._id})
-        await newBook.save()
-        currentUser.favoriteGenre = currentUser.favoriteGenre.concat(newBook)
-        await currentUser.save()
-      } catch (error) {
-        throw new GraphQLError('Saving user failed: ', {
+    addBook: async (root, args, context) => {
+      const currentUser = context.currentUser;
+      console.log(currentUser)
+      if (!currentUser) {
+        throw new GraphQLError('Not authenticated', {
           extensions: {
             code: 'BAD_USER_INPUT',
-            invalidArgs: args.name,
-            error
-          }
+          },
         });
       }
-      return newBook
-    },
+    
+      if (args.title.length < 5) {
+        throw new GraphQLError('Book title is too short', {
+          extensions: {
+            code: 'BAD_USER_INPUT',
+          },
+        });
+      }
+    
+      try {
+        let author = await AuthorModel.findOne({ name: args.name });
+    
+        if (!author) {
+          author = new AuthorModel({ name: args.name, born: args.born });
+          await author.save();
+        }
+    
+        const newBook = new BookModel({
+          title: args.title,
+          published: args.published || null,
+          author: author._id,
+          genres: args.genres || [],
+        });
+    
+        await newBook.save();
+    
+        // Update currentUser's favoriteGenre (assuming this is a valid operation)
+        currentUser.favoriteGenre = currentUser.favoriteGenre.concat(newBook.genres);
+        await currentUser.save();
+    
+        return newBook;
+      } catch (error) {
+        console.error('Error saving book:', error);
+        throw new GraphQLError('Saving book failed', {
+          extensions: {
+            code: 'INTERNAL_SERVER_ERROR',
+            error: error.message,
+          },
+        });
+      }
+    },    
     createUser: async (root, args) => {
+       // Add validation for username length
+      if (args.username.length < 3) {
+        throw new GraphQLError('Username is too short', {
+          extensions: {
+            code: 'BAD_USER_INPUT',
+          },
+        });
+      }
       const user = new UserModel({ username: args.username })
-
+      
       return user.save()
                  .catch(error => {
                   throw new GraphQLError('Creating the user failed', {
@@ -311,7 +339,7 @@ const resolvers = {
     login: async (root, args) => {
       const user = await UserModel.findOne({ username: args.username })
 
-      if ( !user || args.password !== 'secret' ) {
+      if ( !user || args.password !== process.env.JWT_SECRET ) {
         throw new GraphQLError('wrong credentials', {
           extensions: { code: 'BAD_USER_INPUT' }
         })        
